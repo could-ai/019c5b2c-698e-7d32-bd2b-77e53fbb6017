@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/analysis_entry.dart';
@@ -23,6 +24,8 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const HomePage(),
+        '/prp/07-test': (context) => const TestChecklistScreen(),
+        '/prp/08-ship': (context) => const ShipScreen(),
       },
     );
   }
@@ -178,6 +181,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
+          drawer: const AppDrawer(),
           body: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Form(
@@ -236,6 +240,17 @@ class _HomePageState extends State<HomePage> {
               icon: const Icon(Icons.arrow_back),
               onPressed: _backToForm,
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.copy),
+                tooltip: 'Copy Analysis',
+                onPressed: () {
+                  final text = 'Company: ${_currentAnalysis!.company}\nRole: ${_currentAnalysis!.role}\nScore: ${_currentAnalysis!.finalScore}\nSkills: ${_currentAnalysis!.extractedSkills.entries.map((e) => "${e.key}: ${e.value.join(", ")}").join("\n")}';
+                  Clipboard.setData(ClipboardData(text: text));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+                },
+              ),
+            ],
           ),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -298,5 +313,207 @@ class _HomePageState extends State<HomePage> {
           ),
         );
     }
+  }
+}
+
+class AppDrawer extends StatelessWidget {
+  const AppDrawer({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(color: Colors.blue),
+            child: Text('Placement Readiness', style: TextStyle(color: Colors.white, fontSize: 24)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.home),
+            title: const Text('Home'),
+            onTap: () => Navigator.pushReplacementNamed(context, '/'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.checklist),
+            title: const Text('Test Checklist'),
+            onTap: () => Navigator.pushReplacementNamed(context, '/prp/07-test'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.rocket),
+            title: const Text('Ship'),
+            onTap: () => Navigator.pushReplacementNamed(context, '/prp/08-ship'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TestChecklistScreen extends StatefulWidget {
+  const TestChecklistScreen({super.key});
+
+  @override
+  State<TestChecklistScreen> createState() => _TestChecklistScreenState();
+}
+
+class _TestChecklistScreenState extends State<TestChecklistScreen> {
+  final List<String> _tests = [
+    'JD required validation works',
+    'Short JD warning shows for <200 chars',
+    'Skills extraction groups correctly',
+    'Round mapping changes based on company + skills',
+    'Score calculation is deterministic',
+    'Skill toggles update score live',
+    'Changes persist after refresh',
+    'History saves and loads correctly',
+    'Export buttons copy the correct content',
+    'No console errors on core pages',
+  ];
+  final List<String> _hints = [
+    'Try analyzing with empty JD.',
+    'Enter short text and check for yellow warning.',
+    'Check if skills appear in correct categories.',
+    'Verify rounds match the context.',
+    'Same inputs should yield same base score.',
+    'Change confidence and watch Final Score.',
+    'Reload app and check history.',
+    'Verify list in History tab.',
+    'Use Copy button in results.',
+    'Check debug console.',
+  ];
+  List<bool> _checked = List.filled(10, false);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChecklist();
+  }
+
+  void _loadChecklist() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('test_checklist_status');
+    if (saved != null && saved.length == 10) {
+      setState(() {
+        _checked = saved.map((e) => e == '1').toList();
+      });
+    }
+  }
+
+  void _saveChecklist() async {
+    final prefs = await SharedPreferences.getInstance();
+    final toSave = _checked.map((e) => e ? '1' : '0').toList();
+    await prefs.setStringList('test_checklist_status', toSave);
+  }
+
+  void _reset() async {
+    setState(() {
+      _checked = List.filled(10, false);
+    });
+    _saveChecklist();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    int passed = _checked.where((e) => e).length;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Test Checklist')),
+      drawer: const AppDrawer(),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                Text('Tests Passed: $passed / 10', style: Theme.of(context).textTheme.headlineSmall),
+                if (passed < 10)
+                  const Text('Fix issues before shipping.', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                ElevatedButton(onPressed: _reset, child: const Text('Reset checklist')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: 10,
+              itemBuilder: (context, index) {
+                return CheckboxListTile(
+                  title: Text(_tests[index]),
+                  subtitle: Text(_hints[index]),
+                  value: _checked[index],
+                  onChanged: (val) {
+                    setState(() {
+                      _checked[index] = val ?? false;
+                    });
+                    _saveChecklist();
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ShipScreen extends StatefulWidget {
+  const ShipScreen({super.key});
+
+  @override
+  State<ShipScreen> createState() => _ShipScreenState();
+}
+
+class _ShipScreenState extends State<ShipScreen> {
+  bool _isLocked = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkStatus();
+  }
+
+  void _checkStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('test_checklist_status');
+    if (saved != null && saved.length == 10 && saved.every((e) => e == '1')) {
+      setState(() {
+        _isLocked = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Ship Status')),
+      drawer: const AppDrawer(),
+      body: Center(
+        child: _isLocked
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.lock, size: 64, color: Colors.grey),
+                  const SizedBox(height: 20),
+                  const Text('Locked. Complete all tests.', style: TextStyle(fontSize: 20)),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pushReplacementNamed(context, '/prp/07-test');
+                    },
+                    child: const Text('Go to Checklist'),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.rocket_launch, size: 64, color: Colors.green),
+                  const SizedBox(height: 20),
+                  const Text('Ready to Ship! 🚀', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                ],
+              ),
+      ),
+    );
   }
 }
